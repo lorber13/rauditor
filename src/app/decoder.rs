@@ -1,6 +1,5 @@
 use symphonia::{
     core::{
-        audio::SampleBuffer,
         codecs::{self, CODEC_TYPE_NULL, DecoderOptions},
         errors::Error,
         formats::FormatReader,
@@ -10,11 +9,13 @@ use symphonia::{
     default::get_probe,
 };
 
+use crate::app::audio::DualChannelPCM;
+
 pub struct Decoder {
     format: Box<dyn FormatReader>,
     decoder: Box<dyn codecs::Decoder>,
     track_id: u32,
-    sample_buf: Vec<f32>,
+    output_data: DualChannelPCM,
 }
 
 impl Decoder {
@@ -53,70 +54,95 @@ impl Decoder {
             decoder,
             format,
             track_id,
-            sample_buf: Vec::new(),
+            output_data: DualChannelPCM {
+                left: vec![],
+                right: vec![],
+            },
         }
     }
     pub fn decode(&mut self) {
-        // The decode loop.
-        loop {
-            // Get the next packet from the media format.
-            let packet = match self.format.next_packet() {
-                Ok(packet) => packet,
-                Err(Error::ResetRequired) => {
-                    // The track list has been changed. Re-examine it and create a new set of decoders,
-                    // then restart the decode loop. This is an advanced feature and it is not
-                    // unreasonable to consider this "the end." As of v0.5.0, the only usage of this is
-                    // for chained OGG physical streams.
-                    unimplemented!();
-                }
-                Err(_) => {
-                    // A unrecoverable error occured, halt decoding.
-                    break;
-                }
-            };
-
-            // Consume any new metadata that has been read since the last packet.
-            while !self.format.metadata().is_latest() {
-                // Pop the old head of the metadata queue.
-                self.format.metadata().pop();
-
-                // Consume the new metadata at the head of the metadata queue.
+        // Get the next packet from the media format.
+        let packet = match self.format.next_packet() {
+            Ok(packet) => packet,
+            Err(Error::ResetRequired) => {
+                // The track list has been changed. Re-examine it and create a new set of decoders,
+                // then restart the decode loop. This is an advanced feature and it is not
+                // unreasonable to consider this "the end." As of v0.5.0, the only usage of this is
+                // for chained OGG physical streams.
+                unimplemented!();
             }
-
-            // If the packet does not belong to the selected track, skip over it.
-            if packet.track_id() != self.track_id {
-                continue;
+            Err(_) => {
+                // A unrecoverable error occured, halt decoding.
+                return;
             }
+        };
 
-            // Decode the packet into audio samples.
-            match self.decoder.decode(&packet) {
-                Ok(decoded) => {
-                    let mut sample_buf =
-                        SampleBuffer::<f32>::new(decoded.capacity() as u64, *decoded.spec());
+        // Consume any new metadata that has been read since the last packet.
+        while !self.format.metadata().is_latest() {
+            // Pop the old head of the metadata queue.
+            self.format.metadata().pop();
 
-                    // Copy the contents of the decoded audio buffer into the sample buffer whilst performing
-                    // any required conversions.
-                    sample_buf.copy_interleaved_ref(decoded);
-                    sample_buf.samples().iter().for_each(|sample| {
-                        self.sample_buf.push(*sample);
+            // Consume the new metadata at the head of the metadata queue.
+        }
+
+        // If the packet does not belong to the selected track, skip over it.
+        if packet.track_id() != self.track_id {
+            return;
+        }
+
+        // Decode the packet into audio samples.
+        match self.decoder.decode(&packet) {
+            Ok(decoded) => match decoded {
+                symphonia::core::audio::AudioBufferRef::U8(cow) => todo!(),
+                symphonia::core::audio::AudioBufferRef::U16(cow) => todo!(),
+                symphonia::core::audio::AudioBufferRef::U24(cow) => todo!(),
+                symphonia::core::audio::AudioBufferRef::U32(cow) => todo!(),
+                symphonia::core::audio::AudioBufferRef::S8(cow) => todo!(),
+                symphonia::core::audio::AudioBufferRef::S16(cow) => todo!(),
+                symphonia::core::audio::AudioBufferRef::S24(cow) => todo!(),
+                symphonia::core::audio::AudioBufferRef::S32(buf) => {
+                    let planes = buf.planes();
+                    let left_chan = planes.planes()[0];
+                    let right_chan = planes.planes()[1];
+                    self.output_data.left.clear();
+                    self.output_data.right.clear();
+                    left_chan.iter().for_each(|sample| {
+                        self.output_data.left.push(
+                            *sample
+                                >> self.format.tracks()[0]
+                                    .codec_params
+                                    .bits_per_sample
+                                    .unwrap(),
+                        );
+                    });
+                    right_chan.iter().for_each(|sample| {
+                        self.output_data.right.push(
+                            *sample
+                                >> self.format.tracks()[0]
+                                    .codec_params
+                                    .bits_per_sample
+                                    .unwrap(),
+                        );
                     });
                 }
-                Err(Error::IoError(_)) => {
-                    // The packet failed to decode due to an IO error, skip the packet.
-                    continue;
-                }
-                Err(Error::DecodeError(_)) => {
-                    // The packet failed to decode due to invalid data, skip the packet.
-                    continue;
-                }
-                Err(err) => {
-                    // An unrecoverable error occured, halt decoding.
-                    panic!("{}", err);
-                }
+                symphonia::core::audio::AudioBufferRef::F32(cow) => todo!(),
+                symphonia::core::audio::AudioBufferRef::F64(cow) => todo!(),
+            },
+            Err(Error::IoError(_)) => {
+                // The packet failed to decode due to an IO error, skip the packet.
+                return;
+            }
+            Err(Error::DecodeError(_)) => {
+                // The packet failed to decode due to invalid data, skip the packet.
+                return;
+            }
+            Err(err) => {
+                // An unrecoverable error occured, halt decoding.
+                panic!("{}", err);
             }
         }
     }
-    pub fn get_samples(&self) -> &[f32] {
-        &self.sample_buf
+    pub fn get_samples(&self) -> &DualChannelPCM {
+        &self.output_data
     }
 }
