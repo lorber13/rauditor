@@ -1,6 +1,8 @@
 use symphonia::{
     core::{
+        audio::{RawSample, SampleBuffer},
         codecs::{self, CODEC_TYPE_NULL, DecoderOptions},
+        conv::IntoSample,
         errors::Error,
         formats::FormatReader,
         io::MediaSourceStream,
@@ -9,13 +11,11 @@ use symphonia::{
     default::get_probe,
 };
 
-use crate::app::audio::DualChannelPCM;
-
 pub struct Decoder {
     format: Box<dyn FormatReader>,
     decoder: Box<dyn codecs::Decoder>,
     track_id: u32,
-    output_data: DualChannelPCM,
+    output_data: Vec<f32>,
 }
 
 impl Decoder {
@@ -54,10 +54,7 @@ impl Decoder {
             decoder,
             format,
             track_id,
-            output_data: DualChannelPCM {
-                left: vec![],
-                right: vec![],
-            },
+            output_data: Vec::new(),
         }
     }
     pub fn decode(&mut self) {
@@ -92,42 +89,15 @@ impl Decoder {
 
         // Decode the packet into audio samples.
         match self.decoder.decode(&packet) {
-            Ok(decoded) => match decoded {
-                symphonia::core::audio::AudioBufferRef::U8(cow) => todo!(),
-                symphonia::core::audio::AudioBufferRef::U16(cow) => todo!(),
-                symphonia::core::audio::AudioBufferRef::U24(cow) => todo!(),
-                symphonia::core::audio::AudioBufferRef::U32(cow) => todo!(),
-                symphonia::core::audio::AudioBufferRef::S8(cow) => todo!(),
-                symphonia::core::audio::AudioBufferRef::S16(cow) => todo!(),
-                symphonia::core::audio::AudioBufferRef::S24(cow) => todo!(),
-                symphonia::core::audio::AudioBufferRef::S32(buf) => {
-                    let planes = buf.planes();
-                    let left_chan = planes.planes()[0];
-                    let right_chan = planes.planes()[1];
-                    self.output_data.left.clear();
-                    self.output_data.right.clear();
-                    left_chan.iter().for_each(|sample| {
-                        self.output_data.left.push(
-                            *sample
-                                >> self.format.tracks()[0]
-                                    .codec_params
-                                    .bits_per_sample
-                                    .unwrap(),
-                        );
-                    });
-                    right_chan.iter().for_each(|sample| {
-                        self.output_data.right.push(
-                            *sample
-                                >> self.format.tracks()[0]
-                                    .codec_params
-                                    .bits_per_sample
-                                    .unwrap(),
-                        );
-                    });
+            Ok(decoded) => {
+                let mut sample_buf =
+                    SampleBuffer::<f32>::new(decoded.capacity() as u64, *decoded.spec());
+                sample_buf.copy_planar_ref(decoded);
+                // self.output_data.clear();
+                for sample in sample_buf.samples() {
+                    self.output_data.push(*sample);
                 }
-                symphonia::core::audio::AudioBufferRef::F32(cow) => todo!(),
-                symphonia::core::audio::AudioBufferRef::F64(cow) => todo!(),
-            },
+            }
             Err(Error::IoError(_)) => {
                 // The packet failed to decode due to an IO error, skip the packet.
                 return;
@@ -142,7 +112,7 @@ impl Decoder {
             }
         }
     }
-    pub fn get_samples(&self) -> &DualChannelPCM {
+    pub fn get_samples(&self) -> &[f32] {
         &self.output_data
     }
 }

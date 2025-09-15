@@ -1,9 +1,12 @@
-use std::time::Instant;
+use std::{f64::INFINITY, time::Instant};
 
-use eframe::egui::{CentralPanel, Color32, Vec2, Vec2b};
-use egui_plot::{Line, Plot, PlotPoints, VLine};
+use eframe::{
+    egui::{CentralPanel, Color32, Stroke, Vec2, Vec2b},
+    glow::BLUE,
+};
+use egui_plot::{Bar, BarChart, Line, Plot, PlotBounds, PlotPoints, VLine};
 
-use crate::app::decoder::Decoder;
+use crate::app::{audio::WaveForm, decoder::Decoder};
 
 mod audio;
 mod decoder;
@@ -30,15 +33,11 @@ impl eframe::App for App {
                 self.decoder.decode();
                 self.start_time = Some(Instant::now());
             }
-            let dual_channel_pcm = self.decoder.get_samples();
-            let samples: Vec<f64> = dual_channel_pcm
-                .left
-                .iter()
-                .map(|sample| *sample as f64)
-                .collect();
+            let samples = self.decoder.get_samples();
             if samples.len() > 0 {
-                let plot_points = PlotPoints::from_ys_f64(&samples);
-                let waveform = Line::new("left", plot_points).color(Color32::BLUE);
+                // let plot_points = PlotPoints::from_ys_f64(&samples);
+                // let waveform = Line::new("left", plot_points).color(Color32::BLUE);
+                let waveform = WaveForm::new("left", samples).color(Color32::BLUE);
                 Plot::new("waveform_left")
                     .show_y(false)
                     .allow_axis_zoom_drag(Vec2b::new(true, false))
@@ -49,14 +48,15 @@ impl eframe::App for App {
                     .allow_drag(Vec2b::new(true, false))
                     .height(ui.available_height() / 2 as f32)
                     .show(ui, |plot_ui| {
-                        plot_ui.line(waveform);
-                        plot_ui.vline(
-                            VLine::new(
-                                "cursor",
-                                self.start_time.unwrap().elapsed().as_secs_f32() * 10.0,
-                            )
-                            .color(Color32::RED),
-                        );
+                        // plot_ui.line(waveform);
+                        // plot_ui.vline(
+                        //     VLine::new(
+                        //         "cursor",
+                        //         self.start_time.unwrap().elapsed().as_secs_f32() * 44100.0,
+                        //     )
+                        //     .color(Color32::RED),
+                        // );
+                        plot_ui.add(waveform);
                     });
                 ctx.request_repaint();
             }
